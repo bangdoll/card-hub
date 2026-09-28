@@ -5,11 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>名片大腦 ‧ AI Card Hub - 商務人脈資產管理系統</title>
   <link rel="icon" type="image/png" href="/static/assets/logo.png">
-  <!-- Google Fonts & Google Identity Services -->
+  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -311,25 +310,15 @@
         <img src="/static/assets/logo.png" alt="AI Card Hub Logo" class="vault-logo-img">
       </div>
       <div class="vault-badge">🔒 專屬商務人脈保險庫</div>
-      <h2 class="vault-title">AI Card Hub ‧ 身份核驗</h2>
+      <h2 class="vault-title">AI Card Hub ‧ 身分安全驗證</h2>
       <p class="vault-subtitle">
-        本系統包含機密商務人脈與個人私密備忘資產<br>
-        <strong>僅限指定管理員 (<span style="color:var(--accent-cyan);">bangdoll2k@gmail.com</span>) 存取</strong>
+        本系統收錄個人機密商務人脈資產<br>
+        請輸入管理員專屬存取金鑰以解鎖資料庫
       </p>
-
-      <!-- Google Sign-In Quick Action -->
-      <button type="button" class="btn-google-login" id="btnGoogleLogin">
-        <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/><path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.8 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16c1.8 3.7 5.6 7 10.1 7z"/></svg>
-        <span>以 Google 登入 (bangdoll2k)</span>
-      </button>
-
-      <div class="auth-divider">
-        <span>或輸入管理員金鑰</span>
-      </div>
 
       <form id="vaultAuthForm" class="vault-form" onsubmit="return false;">
         <div class="vault-input-group">
-          <input type="password" id="vaultPassInput" class="vault-input" placeholder="輸入專屬存取金鑰 (預設: rdcoach)" autocomplete="current-password">
+          <input type="password" id="vaultPassInput" class="vault-input" placeholder="請輸入管理員存取金鑰" autocomplete="current-password" autofocus>
           <button type="button" class="vault-pwd-toggle" id="btnVaultTogglePwd" title="顯示/隱藏密碼">👁️</button>
         </div>
         <div id="vaultErrorMsg" class="vault-error-msg" style="display: none;"></div>
@@ -342,12 +331,12 @@
         </div>
 
         <button type="submit" class="btn btn-primary vault-submit-btn" id="btnVaultUnlock">
-          <span>驗證身分並解鎖</span> &rarr;
+          <span>解鎖人脈大腦</span> &rarr;
         </button>
       </form>
 
       <div class="vault-footer-hint">
-        <span>🛡️ 嚴格白名單防護 ‧ 未授權者與外部訪客無法讀取任何名片資料</span>
+        <span>🛡️ 軍規級安全雜湊防護 ‧ 未持有授權金鑰無法讀取任何名片資料</span>
       </div>
     </div>
   </div>

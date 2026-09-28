@@ -1,8 +1,5 @@
-// AI Card Hub - Frontend Application Logic & Security Vault
-
-// --- Security & Allowlist Configuration ---
-const ALLOWED_EMAILS = ['bangdoll2k@gmail.com'];
-const DEFAULT_KEY_HASH = '59492ade085893d9876ef399d55dfcc9e78d38226549533b08732103660e8f41'; // 'rdcoach'
+// --- Security Configuration (One-way SHA-256 Hash Guard) ---
+const DEFAULT_KEY_HASH = '59492ade085893d9876ef399d55dfcc9e78d38226549533b08732103660e8f41';
 
 const state = {
   query: '',
@@ -17,8 +14,7 @@ const state = {
   stats: null,
   currentCard: null,
   uploadedCardData: null,
-  isAuthenticated: false,
-  currentUser: null
+  isAuthenticated: false
 };
 
 // DOM Elements
@@ -96,7 +92,7 @@ function toggleTheme() {
   localStorage.setItem('cardhub-theme', next);
 }
 
-// --- Security Vault & Allowlist Logic ---
+// --- Security Vault Logic ---
 function setupSecurityVault() {
   if (btnVaultTogglePwd) {
     btnVaultTogglePwd.addEventListener('click', () => {
@@ -115,10 +111,6 @@ function setupSecurityVault() {
 
   if (btnVaultUnlock) {
     btnVaultUnlock.addEventListener('click', handlePasscodeUnlock);
-  }
-
-  if (btnGoogleLogin) {
-    btnGoogleLogin.addEventListener('click', handleGoogleLogin);
   }
 
   if (btnUserLogout) {
@@ -140,9 +132,9 @@ function checkAuthAndLoad() {
   if (token) {
     try {
       const sess = JSON.parse(token);
-      if (sess && sess.email && ALLOWED_EMAILS.includes(sess.email)) {
+      if (sess && sess.valid) {
         if (!sess.exp || Date.now() < sess.exp) {
-          grantAccess(sess.email);
+          grantAccess();
           return;
         }
       }
@@ -155,22 +147,20 @@ function checkAuthAndLoad() {
   lockAccess();
 }
 
-function grantAccess(email) {
+function grantAccess() {
   state.isAuthenticated = true;
-  state.currentUser = email;
   vaultGateOverlay.classList.add('unlocked');
   if (userProfileBadge) {
     userProfileBadge.style.display = 'inline-flex';
-    userEmailText.textContent = email;
+    userEmailText.textContent = '已授權';
   }
-  showToast(`歡迎回來，${email.split('@')[0]}！人脈大腦已安全解鎖`, 'success');
+  showToast('歡迎回來！人脈智能庫已安全解鎖 🪪', 'success');
   loadStats();
   loadCards();
 }
 
 function lockAccess() {
   state.isAuthenticated = false;
-  state.currentUser = null;
   state.cards = [];
   vaultGateOverlay.classList.remove('unlocked');
   if (userProfileBadge) {
@@ -186,7 +176,7 @@ function handleLogout() {
   localStorage.removeItem('cardhub_vault_session');
   sessionStorage.removeItem('cardhub_vault_session');
   lockAccess();
-  showToast('人脈保險庫已重新鎖定 🔒', 'info');
+  showToast('人脈保險庫已安全鎖定 🔒', 'info');
 }
 
 async function handlePasscodeUnlock() {
@@ -200,10 +190,8 @@ async function handlePasscodeUnlock() {
   const customHash = localStorage.getItem('cardhub_custom_key_hash') || DEFAULT_KEY_HASH;
 
   if (hash === customHash || hash === DEFAULT_KEY_HASH) {
-    // Valid passcode -> Auth as default admin bangdoll2k@gmail.com
     const sess = {
-      email: 'bangdoll2k@gmail.com',
-      authMethod: 'passcode',
+      valid: true,
       exp: vaultRememberMe.checked ? Date.now() + 30 * 24 * 3600 * 1000 : null
     };
     if (vaultRememberMe.checked) {
@@ -213,68 +201,12 @@ async function handlePasscodeUnlock() {
     }
     vaultErrorMsg.style.display = 'none';
     vaultPassInput.value = '';
-    grantAccess('bangdoll2k@gmail.com');
+    grantAccess();
   } else {
     showVaultError('存取金鑰錯誤，拒絕存取');
     const cardEl = vaultGateOverlay.querySelector('.vault-card');
     cardEl.classList.add('vault-shake');
     setTimeout(() => cardEl.classList.remove('vault-shake'), 400);
-  }
-}
-
-function handleGoogleLogin() {
-  // If Google GSI is available, try to prompt One-Tap or fast OAuth
-  if (window.google && window.google.accounts && window.google.accounts.id) {
-    try {
-      google.accounts.id.initialize({
-        client_id: '1088463870632-placeholder.apps.googleusercontent.com', // fallback
-        callback: (resp) => {
-          // Parse JWT payload
-          try {
-            const base64Url = resp.credential.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
-            const payload = JSON.parse(jsonPayload);
-            if (ALLOWED_EMAILS.includes(payload.email)) {
-              const sess = {
-                email: payload.email,
-                authMethod: 'google',
-                exp: Date.now() + 30 * 24 * 3600 * 1000
-              };
-              localStorage.setItem('cardhub_vault_session', JSON.stringify(sess));
-              grantAccess(payload.email);
-              return;
-            } else {
-              showVaultError(`帳號 ${payload.email} 未在授權白名單內`);
-              return;
-            }
-          } catch (e) {
-            // parse error
-          }
-        }
-      });
-      google.accounts.id.prompt();
-      return;
-    } catch (e) {
-      console.warn('Google GSI prompt bypassed:', e);
-    }
-  }
-
-  // Fast-Pass for Primary Admin (bangdoll2k@gmail.com) on Personal Device
-  const promptAns = prompt('請確認您的管理員信箱 (需為白名單 bangdoll2k@gmail.com)：', 'bangdoll2k@gmail.com');
-  if (promptAns) {
-    const email = promptAns.trim().toLowerCase();
-    if (ALLOWED_EMAILS.includes(email)) {
-      const sess = {
-        email: email,
-        authMethod: 'google_direct',
-        exp: Date.now() + 30 * 24 * 3600 * 1000
-      };
-      localStorage.setItem('cardhub_vault_session', JSON.stringify(sess));
-      grantAccess(email);
-    } else {
-      showVaultError(`帳號【${email}】非授權管理員，拒絕存取！`);
-    }
   }
 }
 
