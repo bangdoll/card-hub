@@ -138,6 +138,12 @@ def get_card(card_id: int):
     return JSONResponse(status_code=404, content={"detail": "Card not found"})
 
 
-# Support both with and without /api prefix
+@router.get("/")
+@router.get("")
+def root():
+    return {"status": "ok", "app": "AI Card Hub Serverless API", "total_cards": len(get_cards())}
+
+# Support both with and without /api prefix, and handle index.py
 app.include_router(router, prefix="/api")
 app.include_router(router)
+app.include_router(router, prefix="/api/index.py")
