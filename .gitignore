@@ -1,0 +1,21 @@
+# Ignore local python and environment files
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+.venv*/
+venv/
+.DS_Store
+
+# Ignore large physical image assets (3.6GB) to avoid GitHub repository bloat
+_resources/
+Evernote-BK/
+
+# Temporary and database locks
+*.db-wal
+*.db-shm
+*.log
+
+# Vercel build output
+.vercel/

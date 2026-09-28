@@ -1,0 +1,9 @@
+{
+  "name": "ai-card-hub",
+  "version": "1.0.0",
+  "description": "AI Card Hub - 2,025 筆商務人脈大腦與 AI 視覺辨識管理系統",
+  "scripts": {
+    "dev": "python server/main.py",
+    "export": "python server/export_json.py"
+  }
+}
