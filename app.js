@@ -586,6 +586,43 @@ function getCardDigitalMediaHtml(card) {
   `;
 }
 
+// Image Path Resolver (優先載入已壓縮 WebP 縮圖，兼顧真實照片與極速秒開)
+function getCardImageSrc(card) {
+  if (!card.image_paths || card.image_paths.length === 0) return null;
+  const first = card.image_paths[0];
+  if (first.startsWith('/uploads/')) return first;
+  return `/static/thumbs/card_${card.id}.webp`;
+}
+
+// Global Image Error Fallback (優雅回退，無任何跳錯或轉義字串)
+window.handleImageError = function(imgEl, cardId) {
+  const card = (state.cards || []).find(c => c.id === cardId) || { name: '商務名片' };
+  const parent = imgEl.parentElement;
+  if (parent) {
+    imgEl.remove();
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = getCardDigitalMediaHtml(card);
+    if (wrapper.firstElementChild) {
+      parent.prepend(wrapper.firstElementChild);
+    }
+  }
+};
+
+window.handleDetailImageError = function(imgEl, cardId) {
+  const card = state.currentCard || (state.cards || []).find(c => c.id === cardId) || { name: '商務名片' };
+  const container = imgEl.closest('.detail-media-container') || imgEl.parentElement;
+  if (container) {
+    container.innerHTML = `<div style="padding: 1.5rem; width: 100%; height: 260px;">${getCardDigitalMediaHtml(card)}</div>`;
+  }
+};
+
+window.handleTableThumbError = function(imgEl) {
+  const span = document.createElement('span');
+  span.style.fontSize = '1.2rem';
+  span.textContent = '🪪';
+  imgEl.replaceWith(span);
+};
+
 // --- Render Cards ---
 function renderCards() {
   if (!state.isAuthenticated) return;
@@ -597,12 +634,9 @@ function renderCards() {
     cardEl.className = 'business-card';
     cardEl.dataset.id = card.id;
 
-    // Image logic
+    // Image logic: 載入真實實體名片圖檔
     const hasImage = card.image_paths && card.image_paths.length > 0;
-    const firstImg = hasImage ? card.image_paths[0] : null;
-    const imgSrc = firstImg 
-      ? (firstImg.startsWith('/uploads/') ? firstImg : `/resources/${firstImg}`)
-      : null;
+    const imgSrc = getCardImageSrc(card);
 
     const ocrStatusBadge = card.ocr_status === 'done'
       ? `<span class="badge badge-ocr-done">AI 已辨識</span>`
@@ -632,14 +666,11 @@ function renderCards() {
       }
     }
 
-    // Default art fallback for seamless luxury feeling
-    const fallbackArt = getCardDigitalMediaHtml(card);
-
     cardEl.innerHTML = `
       <div class="card-media" onclick="openDetailModal(${card.id})">
         ${imgSrc 
-          ? `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(card.name)}" loading="lazy" onerror="this.outerHTML=window.__getCardArtHtml(${card.id})">` 
-          : fallbackArt}
+          ? `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(card.name)}" loading="lazy" onerror="window.handleImageError(this, ${card.id})">` 
+          : getCardDigitalMediaHtml(card)}
         <div class="media-badges">
           ${imagesBadge}
           ${ocrStatusBadge}
@@ -704,14 +735,13 @@ function renderCards() {
   cardsTableBody.innerHTML = '';
   state.cards.forEach(card => {
     const tr = document.createElement('tr');
-    const firstImg = card.image_paths && card.image_paths.length > 0 ? card.image_paths[0] : null;
-    const imgSrc = firstImg ? (firstImg.startsWith('/uploads/') ? firstImg : `/resources/${firstImg}`) : '';
+    const imgSrc = getCardImageSrc(card);
     const phoneDisplay = card.mobile || card.phone || '-';
 
     tr.innerHTML = `
       <td>
         ${imgSrc 
-          ? `<img src="${escapeHtml(imgSrc)}" class="table-thumb" onclick="openDetailModal(${card.id})" alt="名片" onerror="this.outerHTML='<span style=\\'font-size:1.2rem;\\'>🪪</span>'">` 
+          ? `<img src="${escapeHtml(imgSrc)}" class="table-thumb" onclick="openDetailModal(${card.id})" alt="名片" onerror="window.handleTableThumbError(this)">` 
           : `<span style="font-size:1.2rem;">🪪</span>`}
       </td>
       <td><strong style="cursor:pointer;" onclick="openDetailModal(${card.id})">${escapeHtml(card.name || '未命名')}</strong></td>
@@ -735,12 +765,6 @@ function renderCards() {
     cardsTableBody.appendChild(tr);
   });
 }
-
-// Global hook for onerror fallback string
-window.__getCardArtHtml = function(cardId) {
-  const card = state.cards.find(c => c.id === cardId) || { name: '商務名片' };
-  return JSON.stringify(getCardDigitalMediaHtml(card));
-};
 
 // --- Pagination ---
 function renderPagination() {
@@ -817,12 +841,14 @@ async function openDetailModal(cardId) {
     state.currentCard = card;
 
     const detailModalBody = document.getElementById('detailModalBody');
-    const imagesHtml = (card.image_paths || []).map(p => {
-      const src = p.startsWith('/uploads/') ? p : `/resources/${p}`;
+    const thumbSrc = getCardImageSrc(card);
+    const imagesHtml = (card.image_paths || []).map((p, idx) => {
+      const originalSrc = p.startsWith('/uploads/') ? p : `/resources/${p}`;
+      const displaySrc = thumbSrc || originalSrc;
       return `
-        <div style="margin-bottom: 1rem; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); text-align: center;">
-          <a href="${src}" target="_blank" title="點擊檢視原圖">
-            <img src="${src}" style="max-width: 100%; max-height: 420px; object-fit: contain;" alt="${escapeHtml(card.name)}" onerror="this.parentElement.outerHTML='<div style=\\'padding:1.5rem;\\'>${getCardDigitalMediaHtml(card)}</div>'">
+        <div class="detail-media-container" style="margin-bottom: 1rem; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); text-align: center;">
+          <a href="${originalSrc}" target="_blank" title="點擊檢視高解析大圖">
+            <img src="${escapeHtml(displaySrc)}" style="max-width: 100%; max-height: 420px; object-fit: contain; cursor: zoom-in;" alt="${escapeHtml(card.name)}" onerror="window.handleDetailImageError(this, ${card.id})">
           </a>
         </div>
       `;
