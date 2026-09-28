@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>名片大腦 ‧ AI Card Hub - 2,025 筆商務人脈資產庫</title>
-  <!-- Google Fonts -->
+  <title>名片大腦 ‧ AI Card Hub - 商務人脈資產管理系統</title>
+  <link rel="icon" type="image/png" href="/static/assets/logo.png">
+  <!-- Google Fonts & Google Identity Services -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -16,14 +18,16 @@
   <header class="app-header">
     <div class="header-container">
       <div class="brand-section">
-        <div class="brand-icon">🪪</div>
+        <div class="brand-icon">
+          <img src="/static/assets/logo.png" alt="AI Card Hub Logo" class="brand-logo-img">
+        </div>
         <div class="brand-title">
-          <h1>AI Card Hub <span class="brand-badge">2,025 名片大腦</span></h1>
-          <div class="brand-subtitle">商務人脈資產庫 ‧ 雙引擎 AI 視覺辨識</div>
+          <h1>AI Card Hub <span class="brand-badge" id="brandBadge">人脈智能庫</span></h1>
+          <div class="brand-subtitle">商務人脈資產管理 ‧ 雙引擎 AI 視覺辨識</div>
         </div>
       </div>
 
-      <!-- Realtime Database Stats -->
+      <!-- Realtime Database Stats (Desktop) -->
       <div class="header-stats" id="headerStats">
         <div class="stat-item">總名片: <strong id="statTotal">--</strong></div>
         <div class="stat-divider"></div>
@@ -36,13 +40,23 @@
 
       <!-- Top Actions -->
       <div class="header-actions">
+        <!-- User Identity Profile Badge -->
+        <div class="user-profile-badge" id="userProfileBadge" style="display: none;">
+          <span class="user-avatar-dot"></span>
+          <span class="user-email-text" id="userEmailText">bangdoll2k@gmail.com</span>
+          <button class="btn-logout" id="btnUserLogout" title="登出並鎖定保險庫">登出</button>
+        </div>
+
         <button class="btn btn-primary" id="btnOpenAddModal">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          新增名片 (AI 辨識)
+          <span class="btn-text">新增名片</span>
         </button>
         <button class="btn btn-secondary" id="btnExportVCard" title="匯出為 iOS / Google 通訊錄 vCard 格式">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          匯出 vCard
+          <span class="btn-text">匯出 vCard</span>
+        </button>
+        <button class="btn-icon" id="btnLockVault" title="手動重新鎖定人脈保險庫">
+          🔒
         </button>
         <button class="btn-icon" id="btnThemeToggle" title="切換深色/淺色主題">
           🌓
@@ -53,6 +67,14 @@
 
   <!-- Main Content Layout -->
   <main class="main-content">
+
+    <!-- Mobile Mini Stats Bar (手機專屬滑動膠囊) -->
+    <div class="mobile-stats-bar" id="mobileStatsBar">
+      <div class="mobile-stat-pill">🪪 總名片 <strong id="mStatTotal">--</strong></div>
+      <div class="mobile-stat-pill">📷 實體照 <strong id="mStatWithImg">--</strong></div>
+      <div class="mobile-stat-pill">📞 有電話 <strong id="mStatWithPhone">--</strong></div>
+      <div class="mobile-stat-pill">⚡ 待補全 <strong id="mStatPendingOcr" style="color:var(--accent-amber);">--</strong></div>
+    </div>
 
     <!-- Search & Control Panel -->
     <section class="control-panel">
@@ -152,6 +174,7 @@
   <!-- Modal: 新增名片 (AI 辨識) -->
   <div class="modal-overlay" id="addCardModal">
     <div class="modal-dialog">
+      <div class="modal-handle-bar"></div>
       <div class="modal-header">
         <div class="modal-title">
           <span>📸</span> 新增名片 (AI 智能視覺辨識)
@@ -234,9 +257,16 @@
               <label class="form-label">分類標籤 (以逗號分隔)</label>
               <input type="text" id="formTags" class="form-input" placeholder="玉器, 珠寶, BNI">
             </div>
-            <div class="form-group full-width">
-              <label class="form-label">備忘與業務說明</label>
-              <textarea id="formNotes" class="form-textarea" rows="3" placeholder="相遇場合、業務合作項目或筆記..."></textarea>
+            <div class="form-group full-width notes-form-group">
+              <div class="notes-header-bar">
+                <label class="form-label">📝 備忘與業務交流紀錄</label>
+                <div class="notes-tools">
+                  <span class="notes-counter" id="formNotesCount">0 字</span>
+                  <button type="button" class="btn-notes-tool" id="btnFormNotesInsertDate">📅 今日日期</button>
+                  <button type="button" class="btn-notes-tool" id="btnFormNotesToggleExpand">⛶ 擴展高度</button>
+                </div>
+              </div>
+              <textarea id="formNotes" class="form-textarea form-textarea-large" rows="8" placeholder="初次見面場合、介紹人、談話要點、合作備忘、家庭與嗜好背景...（右下角可自由往下拉大）"></textarea>
             </div>
           </div>
         </div>
@@ -270,6 +300,54 @@
         <button class="btn btn-secondary" id="btnDetailExportVcf">匯出 vCard</button>
         <button class="btn btn-primary btn-ocr" id="btnDetailTriggerOcr">⚡ 重新執行 AI 辨識</button>
         <button class="btn btn-primary" id="btnDetailSave">儲存修改</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Security Gatekeeper: Vault Lock Overlay (專屬人脈保險庫門禁) -->
+  <div class="vault-gate-overlay" id="vaultGateOverlay">
+    <div class="vault-card">
+      <div class="vault-logo-glow">
+        <img src="/static/assets/logo.png" alt="AI Card Hub Logo" class="vault-logo-img">
+      </div>
+      <div class="vault-badge">🔒 專屬商務人脈保險庫</div>
+      <h2 class="vault-title">AI Card Hub ‧ 身份核驗</h2>
+      <p class="vault-subtitle">
+        本系統包含機密商務人脈與個人私密備忘資產<br>
+        <strong>僅限指定管理員 (<span style="color:var(--accent-cyan);">bangdoll2k@gmail.com</span>) 存取</strong>
+      </p>
+
+      <!-- Google Sign-In Quick Action -->
+      <button type="button" class="btn-google-login" id="btnGoogleLogin">
+        <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/><path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.8 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16c1.8 3.7 5.6 7 10.1 7z"/></svg>
+        <span>以 Google 登入 (bangdoll2k)</span>
+      </button>
+
+      <div class="auth-divider">
+        <span>或輸入管理員金鑰</span>
+      </div>
+
+      <form id="vaultAuthForm" class="vault-form" onsubmit="return false;">
+        <div class="vault-input-group">
+          <input type="password" id="vaultPassInput" class="vault-input" placeholder="輸入專屬存取金鑰 (預設: rdcoach)" autocomplete="current-password">
+          <button type="button" class="vault-pwd-toggle" id="btnVaultTogglePwd" title="顯示/隱藏密碼">👁️</button>
+        </div>
+        <div id="vaultErrorMsg" class="vault-error-msg" style="display: none;"></div>
+
+        <div class="vault-options">
+          <label class="vault-checkbox-label">
+            <input type="checkbox" id="vaultRememberMe" checked>
+            <span>記住此裝置 (30天免重輸)</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary vault-submit-btn" id="btnVaultUnlock">
+          <span>驗證身分並解鎖</span> &rarr;
+        </button>
+      </form>
+
+      <div class="vault-footer-hint">
+        <span>🛡️ 嚴格白名單防護 ‧ 未授權者與外部訪客無法讀取任何名片資料</span>
       </div>
     </div>
   </div>

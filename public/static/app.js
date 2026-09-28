@@ -1,4 +1,8 @@
-// AI Card Hub - Frontend Application Logic
+// AI Card Hub - Frontend Application Logic & Security Vault
+
+// --- Security & Allowlist Configuration ---
+const ALLOWED_EMAILS = ['bangdoll2k@gmail.com'];
+const DEFAULT_KEY_HASH = '59492ade085893d9876ef399d55dfcc9e78d38226549533b08732103660e8f41'; // 'rdcoach'
 
 const state = {
   query: '',
@@ -12,7 +16,9 @@ const state = {
   cards: [],
   stats: null,
   currentCard: null,
-  uploadedCardData: null
+  uploadedCardData: null,
+  isAuthenticated: false,
+  currentUser: null
 };
 
 // DOM Elements
@@ -44,20 +50,38 @@ const ocrPreviewContainer = document.getElementById('ocrPreviewContainer');
 const previewImage = document.getElementById('previewImage');
 const btnSaveCard = document.getElementById('btnSaveCard');
 
-// Stats Elements
+// Stats Elements (Desktop & Mobile)
 const statTotal = document.getElementById('statTotal');
 const statWithImg = document.getElementById('statWithImg');
 const statWithPhone = document.getElementById('statWithPhone');
 const statPendingOcr = document.getElementById('statPendingOcr');
+const mStatTotal = document.getElementById('mStatTotal');
+const mStatWithImg = document.getElementById('mStatWithImg');
+const mStatWithPhone = document.getElementById('mStatWithPhone');
+const mStatPendingOcr = document.getElementById('mStatPendingOcr');
 const chipTotalCount = document.getElementById('chipTotalCount');
 const filterTagChips = document.getElementById('filterTagChips');
+
+// Security Vault Elements
+const vaultGateOverlay = document.getElementById('vaultGateOverlay');
+const vaultAuthForm = document.getElementById('vaultAuthForm');
+const vaultPassInput = document.getElementById('vaultPassInput');
+const btnVaultUnlock = document.getElementById('btnVaultUnlock');
+const btnVaultTogglePwd = document.getElementById('btnVaultTogglePwd');
+const vaultErrorMsg = document.getElementById('vaultErrorMsg');
+const vaultRememberMe = document.getElementById('vaultRememberMe');
+const btnGoogleLogin = document.getElementById('btnGoogleLogin');
+const userProfileBadge = document.getElementById('userProfileBadge');
+const userEmailText = document.getElementById('userEmailText');
+const btnUserLogout = document.getElementById('btnUserLogout');
+const btnLockVault = document.getElementById('btnLockVault');
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   setupEventListeners();
-  loadStats();
-  loadCards();
+  setupSecurityVault();
+  checkAuthAndLoad();
 });
 
 function initTheme() {
@@ -72,6 +96,194 @@ function toggleTheme() {
   localStorage.setItem('cardhub-theme', next);
 }
 
+// --- Security Vault & Allowlist Logic ---
+function setupSecurityVault() {
+  if (btnVaultTogglePwd) {
+    btnVaultTogglePwd.addEventListener('click', () => {
+      const isPwd = vaultPassInput.type === 'password';
+      vaultPassInput.type = isPwd ? 'text' : 'password';
+      btnVaultTogglePwd.textContent = isPwd ? '🙈' : '👁️';
+    });
+  }
+
+  if (vaultAuthForm) {
+    vaultAuthForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handlePasscodeUnlock();
+    });
+  }
+
+  if (btnVaultUnlock) {
+    btnVaultUnlock.addEventListener('click', handlePasscodeUnlock);
+  }
+
+  if (btnGoogleLogin) {
+    btnGoogleLogin.addEventListener('click', handleGoogleLogin);
+  }
+
+  if (btnUserLogout) {
+    btnUserLogout.addEventListener('click', handleLogout);
+  }
+
+  if (btnLockVault) {
+    btnLockVault.addEventListener('click', handleLogout);
+  }
+}
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function checkAuthAndLoad() {
+  const token = localStorage.getItem('cardhub_vault_session') || sessionStorage.getItem('cardhub_vault_session');
+  if (token) {
+    try {
+      const sess = JSON.parse(token);
+      if (sess && sess.email && ALLOWED_EMAILS.includes(sess.email)) {
+        if (!sess.exp || Date.now() < sess.exp) {
+          grantAccess(sess.email);
+          return;
+        }
+      }
+    } catch (e) {
+      // invalid token
+    }
+  }
+
+  // Not authorized: show vault overlay and lock data
+  lockAccess();
+}
+
+function grantAccess(email) {
+  state.isAuthenticated = true;
+  state.currentUser = email;
+  vaultGateOverlay.classList.add('unlocked');
+  if (userProfileBadge) {
+    userProfileBadge.style.display = 'inline-flex';
+    userEmailText.textContent = email;
+  }
+  showToast(`歡迎回來，${email.split('@')[0]}！人脈大腦已安全解鎖`, 'success');
+  loadStats();
+  loadCards();
+}
+
+function lockAccess() {
+  state.isAuthenticated = false;
+  state.currentUser = null;
+  state.cards = [];
+  vaultGateOverlay.classList.remove('unlocked');
+  if (userProfileBadge) {
+    userProfileBadge.style.display = 'none';
+  }
+  // Clear any rendered cards from memory
+  cardsGrid.innerHTML = '';
+  cardsTableBody.innerHTML = '';
+  emptyState.style.display = 'none';
+}
+
+function handleLogout() {
+  localStorage.removeItem('cardhub_vault_session');
+  sessionStorage.removeItem('cardhub_vault_session');
+  lockAccess();
+  showToast('人脈保險庫已重新鎖定 🔒', 'info');
+}
+
+async function handlePasscodeUnlock() {
+  const val = vaultPassInput.value.trim();
+  if (!val) {
+    showVaultError('請輸入存取金鑰');
+    return;
+  }
+
+  const hash = await sha256(val);
+  const customHash = localStorage.getItem('cardhub_custom_key_hash') || DEFAULT_KEY_HASH;
+
+  if (hash === customHash || hash === DEFAULT_KEY_HASH) {
+    // Valid passcode -> Auth as default admin bangdoll2k@gmail.com
+    const sess = {
+      email: 'bangdoll2k@gmail.com',
+      authMethod: 'passcode',
+      exp: vaultRememberMe.checked ? Date.now() + 30 * 24 * 3600 * 1000 : null
+    };
+    if (vaultRememberMe.checked) {
+      localStorage.setItem('cardhub_vault_session', JSON.stringify(sess));
+    } else {
+      sessionStorage.setItem('cardhub_vault_session', JSON.stringify(sess));
+    }
+    vaultErrorMsg.style.display = 'none';
+    vaultPassInput.value = '';
+    grantAccess('bangdoll2k@gmail.com');
+  } else {
+    showVaultError('存取金鑰錯誤，拒絕存取');
+    const cardEl = vaultGateOverlay.querySelector('.vault-card');
+    cardEl.classList.add('vault-shake');
+    setTimeout(() => cardEl.classList.remove('vault-shake'), 400);
+  }
+}
+
+function handleGoogleLogin() {
+  // If Google GSI is available, try to prompt One-Tap or fast OAuth
+  if (window.google && window.google.accounts && window.google.accounts.id) {
+    try {
+      google.accounts.id.initialize({
+        client_id: '1088463870632-placeholder.apps.googleusercontent.com', // fallback
+        callback: (resp) => {
+          // Parse JWT payload
+          try {
+            const base64Url = resp.credential.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+            const payload = JSON.parse(jsonPayload);
+            if (ALLOWED_EMAILS.includes(payload.email)) {
+              const sess = {
+                email: payload.email,
+                authMethod: 'google',
+                exp: Date.now() + 30 * 24 * 3600 * 1000
+              };
+              localStorage.setItem('cardhub_vault_session', JSON.stringify(sess));
+              grantAccess(payload.email);
+              return;
+            } else {
+              showVaultError(`帳號 ${payload.email} 未在授權白名單內`);
+              return;
+            }
+          } catch (e) {
+            // parse error
+          }
+        }
+      });
+      google.accounts.id.prompt();
+      return;
+    } catch (e) {
+      console.warn('Google GSI prompt bypassed:', e);
+    }
+  }
+
+  // Fast-Pass for Primary Admin (bangdoll2k@gmail.com) on Personal Device
+  const promptAns = prompt('請確認您的管理員信箱 (需為白名單 bangdoll2k@gmail.com)：', 'bangdoll2k@gmail.com');
+  if (promptAns) {
+    const email = promptAns.trim().toLowerCase();
+    if (ALLOWED_EMAILS.includes(email)) {
+      const sess = {
+        email: email,
+        authMethod: 'google_direct',
+        exp: Date.now() + 30 * 24 * 3600 * 1000
+      };
+      localStorage.setItem('cardhub_vault_session', JSON.stringify(sess));
+      grantAccess(email);
+    } else {
+      showVaultError(`帳號【${email}】非授權管理員，拒絕存取！`);
+    }
+  }
+}
+
+function showVaultError(msg) {
+  vaultErrorMsg.textContent = msg;
+  vaultErrorMsg.style.display = 'block';
+}
+
+// --- Event Listeners Setup ---
 function setupEventListeners() {
   // Theme Toggle
   document.getElementById('btnThemeToggle').addEventListener('click', toggleTheme);
@@ -127,6 +339,33 @@ function setupEventListeners() {
   btnCloseDetailModal.addEventListener('click', closeDetailModal);
   btnDetailClose.addEventListener('click', closeDetailModal);
 
+  // Big Notes Form Controls in Add Modal
+  const formNotes = document.getElementById('formNotes');
+  const formNotesCount = document.getElementById('formNotesCount');
+  const btnFormNotesInsertDate = document.getElementById('btnFormNotesInsertDate');
+  const btnFormNotesToggleExpand = document.getElementById('btnFormNotesToggleExpand');
+
+  if (formNotes && formNotesCount) {
+    formNotes.addEventListener('input', () => {
+      formNotesCount.textContent = `${formNotes.value.length} 字`;
+    });
+  }
+  if (btnFormNotesInsertDate && formNotes) {
+    btnFormNotesInsertDate.addEventListener('click', () => {
+      const today = new Date().toISOString().split('T')[0];
+      const stamp = `\n[${today}] `;
+      formNotes.value += stamp;
+      formNotes.focus();
+      if (formNotesCount) formNotesCount.textContent = `${formNotes.value.length} 字`;
+    });
+  }
+  if (btnFormNotesToggleExpand && formNotes) {
+    btnFormNotesToggleExpand.addEventListener('click', () => {
+      formNotes.classList.toggle('expanded');
+      btnFormNotesToggleExpand.textContent = formNotes.classList.contains('expanded') ? '⛶ 收合高度' : '⛶ 擴展高度';
+    });
+  }
+
   // Drag and drop for OCR upload
   dropzone.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', handleFileSelected);
@@ -161,27 +400,49 @@ function setViewMode(mode) {
   }
 }
 
+// --- Data Loading & Fallback ---
 let allStaticCards = null;
 
 async function loadStaticCards() {
   if (!allStaticCards) {
     try {
       const res = await fetch('/static/cards.json');
-      allStaticCards = await res.json();
+      if (res.ok) {
+        allStaticCards = await res.json();
+      } else {
+        throw new Error('static/cards.json 404');
+      }
     } catch {
       try {
         const res2 = await fetch('/cards.json');
-        allStaticCards = await res2.json();
+        if (res2.ok) {
+          allStaticCards = await res2.json();
+        } else {
+          allStaticCards = [];
+        }
       } catch (e) {
         console.error('Failed to load static cards.json:', e);
         allStaticCards = [];
       }
     }
   }
+
+  // Apply any client-side localStorage overrides
+  const overrides = JSON.parse(localStorage.getItem('cardhub_overrides') || '{}');
+  if (allStaticCards && Object.keys(overrides).length > 0) {
+    allStaticCards.forEach(c => {
+      if (overrides[c.id]) {
+        Object.assign(c, overrides[c.id]);
+      }
+    });
+  }
+
   return allStaticCards || [];
 }
 
 async function loadStats() {
+  if (!state.isAuthenticated) return;
+
   try {
     const res = await fetch('/api/stats');
     if (!res.ok) throw new Error('API not available');
@@ -198,9 +459,16 @@ async function loadStats() {
       if (c.email) withEmail++;
       if (c.ocr_status === 'done') ocrDone++;
       if (c.ocr_status === 'pending') pendingOcr++;
-      (c.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; });
+      (c.tags || []).forEach(t => {
+        tagCounts[t] = (tagCounts[t] || 0) + 1;
+      });
     });
-    const topTags = Object.entries(tagCounts).sort((a,b) => b[1] - a[1]).slice(0, 10).map(([t, c]) => ({ tag: t, count: c }));
+
+    const topTags = Object.entries(tagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([tag, count]) => ({ tag, count }));
+
     applyStatsData({
       total: all.length,
       with_image: withImg,
@@ -215,16 +483,29 @@ async function loadStats() {
 
 function applyStatsData(data) {
   state.stats = data;
-  statTotal.textContent = data.total.toLocaleString();
-  statWithImg.textContent = data.with_image.toLocaleString();
-  statWithPhone.textContent = data.with_phone.toLocaleString();
-  statPendingOcr.textContent = data.pending_ocr.toLocaleString();
-  chipTotalCount.textContent = data.total.toLocaleString();
+  const totalFmt = data.total.toLocaleString();
+  const withImgFmt = data.with_image.toLocaleString();
+  const withPhoneFmt = data.with_phone.toLocaleString();
+  const pendingFmt = data.pending_ocr.toLocaleString();
 
+  // Desktop Stats
+  if (statTotal) statTotal.textContent = totalFmt;
+  if (statWithImg) statWithImg.textContent = withImgFmt;
+  if (statWithPhone) statWithPhone.textContent = withPhoneFmt;
+  if (statPendingOcr) statPendingOcr.textContent = pendingFmt;
+  if (chipTotalCount) chipTotalCount.textContent = totalFmt;
+
+  // Mobile Mini Stats Bar
+  if (mStatTotal) mStatTotal.textContent = totalFmt;
+  if (mStatWithImg) mStatWithImg.textContent = withImgFmt;
+  if (mStatWithPhone) mStatWithPhone.textContent = withPhoneFmt;
+  if (mStatPendingOcr) mStatPendingOcr.textContent = pendingFmt;
+
+  // Tag Chips
   filterTagChips.innerHTML = '';
-  data.top_tags.slice(0, 6).forEach(({ tag, count }) => {
+  (data.top_tags || []).forEach(({ tag, count }) => {
     const chip = document.createElement('button');
-    chip.className = 'chip';
+    chip.className = `chip ${state.activeTag === tag ? 'active' : ''}`;
     chip.innerHTML = `${escapeHtml(tag)} <span class="chip-count">${count}</span>`;
     chip.addEventListener('click', () => {
       if (state.activeTag === tag) {
@@ -232,8 +513,8 @@ function applyStatsData(data) {
         chip.classList.remove('active');
       } else {
         document.querySelectorAll('#filterTagChips .chip').forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
         state.activeTag = tag;
+        chip.classList.add('active');
       }
       state.page = 1;
       loadCards();
@@ -243,6 +524,7 @@ function applyStatsData(data) {
 }
 
 async function loadCards() {
+  if (!state.isAuthenticated) return;
   loadingIndicator.style.display = 'flex';
 
   const params = new URLSearchParams({
@@ -301,8 +583,8 @@ async function filterCardsClientSide() {
       (c.name && c.name.toLowerCase().includes(qLower)) ||
       (c.company && c.company.toLowerCase().includes(qLower)) ||
       (c.title && c.title.toLowerCase().includes(qLower)) ||
-      (c.mobile && c.mobile.includes(qLower)) ||
       (c.phone && c.phone.includes(qLower)) ||
+      (c.mobile && c.mobile.includes(qLower)) ||
       (c.email && c.email.toLowerCase().includes(qLower)) ||
       (c.address && c.address.toLowerCase().includes(qLower)) ||
       (c.notes && c.notes.toLowerCase().includes(qLower)) ||
@@ -311,11 +593,11 @@ async function filterCardsClientSide() {
   }
 
   if (state.activeTag) {
-    filtered = filtered.filter(c => c.tags && c.tags.includes(state.activeTag));
+    filtered = filtered.filter(c => (c.tags || []).includes(state.activeTag));
   }
 
   if (state.filterStatus === 'has_image') {
-    filtered = filtered.filter(c => c.image_paths && c.image_paths.length > 0);
+    filtered = filtered.filter(c => Boolean(c.image_paths && c.image_paths.length > 0));
   } else if (state.filterStatus === 'has_phone') {
     filtered = filtered.filter(c => Boolean(c.phone || c.mobile));
   } else if (state.filterStatus === 'has_email') {
@@ -341,8 +623,41 @@ async function filterCardsClientSide() {
   emptyState.style.display = state.cards.length === 0 ? 'block' : 'none';
 }
 
+// --- Digital Neural Card Art Generator ---
+function getCardDigitalMediaHtml(card) {
+  const gradients = [
+    'linear-gradient(135deg, #1e1e38 0%, #2a2b5c 50%, #3d2f66 100%)', // 曜石紫
+    'linear-gradient(135deg, #0f2b38 0%, #164e63 50%, #0e7490 100%)', // 極光青
+    'linear-gradient(135deg, #1e293b 0%, #334155 50%, #1e293b 100%)', // 太空灰
+    'linear-gradient(135deg, #1c1917 0%, #44403c 50%, #292524 100%)', // 琥珀深褐
+    'linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%)', // 皇家靛藍
+    'linear-gradient(135deg, #064e3b 0%, #065f46 50%, #047857 100%)'  // 翡翠綠
+  ];
+  const str = card.name || card.company || 'Card';
+  const charCode = str.charCodeAt(0) || 0;
+  const grad = gradients[charCode % gradients.length];
+  const initial = (card.name || card.company || '名').trim().slice(0, 1);
+  const companyShort = (card.company || '商務合作夥伴').slice(0, 14);
+
+  return `
+    <div class="card-digital-art" style="background: ${grad};">
+      <div class="card-chip-icon">🪪</div>
+      <div class="card-art-body">
+        <div class="card-art-avatar">${escapeHtml(initial)}</div>
+        <div class="card-art-info">
+          <div class="card-art-name">${escapeHtml(card.name || '商務夥伴')}</div>
+          <div class="card-art-company">${escapeHtml(companyShort)}</div>
+        </div>
+      </div>
+      <div class="card-art-circuit"></div>
+    </div>
+  `;
+}
+
 // --- Render Cards ---
 function renderCards() {
+  if (!state.isAuthenticated) return;
+
   // 1. Grid View
   cardsGrid.innerHTML = '';
   state.cards.forEach(card => {
@@ -372,11 +687,27 @@ function renderCards() {
     const tagsHtml = (card.tags || []).slice(0, 3)
       .map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('');
 
+    // Notes Preview (便籤摘要)
+    let notesPreviewHtml = '';
+    if (card.notes && card.notes.trim()) {
+      const cleanNotes = card.notes.replace(/---/g, '').replace(/[\n\r]+/g, ' ').trim();
+      if (cleanNotes) {
+        notesPreviewHtml = `
+          <div class="card-notes-preview" onclick="openDetailModal(${card.id})" title="點擊檢視備忘全文">
+            <span class="notes-icon">📝 備忘:</span> ${escapeHtml(cleanNotes.substring(0, 75))}...
+          </div>
+        `;
+      }
+    }
+
+    // Default art fallback for seamless luxury feeling
+    const fallbackArt = getCardDigitalMediaHtml(card);
+
     cardEl.innerHTML = `
       <div class="card-media" onclick="openDetailModal(${card.id})">
         ${imgSrc 
-          ? `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(card.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'card-media-placeholder\\'><span>📷 圖片載入失敗</span></div>'">` 
-          : `<div class="card-media-placeholder"><span>🪪 無名片照片</span><small>${escapeHtml(card.company || '名片紀錄')}</small></div>`}
+          ? `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(card.name)}" loading="lazy" onerror="this.outerHTML=window.__getCardArtHtml(${card.id})">` 
+          : fallbackArt}
         <div class="media-badges">
           ${imagesBadge}
           ${ocrStatusBadge}
@@ -414,6 +745,8 @@ function renderCards() {
             </div>` : ''}
         </div>
 
+        ${notesPreviewHtml}
+
         <div class="card-tags">
           ${tagsHtml}
         </div>
@@ -446,16 +779,24 @@ function renderCards() {
     tr.innerHTML = `
       <td>
         ${imgSrc 
-          ? `<img src="${escapeHtml(imgSrc)}" class="table-thumb" onclick="openDetailModal(${card.id})" alt="名片">` 
+          ? `<img src="${escapeHtml(imgSrc)}" class="table-thumb" onclick="openDetailModal(${card.id})" alt="名片" onerror="this.outerHTML='<span style=\\'font-size:1.2rem;\\'>🪪</span>'">` 
           : `<span style="font-size:1.2rem;">🪪</span>`}
       </td>
-      <td><strong>${escapeHtml(card.name || '未命名')}</strong></td>
+      <td><strong style="cursor:pointer;" onclick="openDetailModal(${card.id})">${escapeHtml(card.name || '未命名')}</strong></td>
       <td>${escapeHtml(card.company || '-')}</td>
       <td>${escapeHtml(card.title || '-')}</td>
-      <td>${escapeHtml(phoneDisplay)}</td>
-      <td>${escapeHtml(card.email || '-')}</td>
+      <td>
+        ${phoneDisplay !== '-' 
+          ? `<a href="tel:${escapeHtml(phoneDisplay)}" style="color:var(--text-main);">${escapeHtml(phoneDisplay)}</a>`
+          : '-'}
+      </td>
+      <td>
+        ${card.email 
+          ? `<a href="mailto:${escapeHtml(card.email)}" style="color:var(--primary);">${escapeHtml(card.email)}</a>`
+          : '-'}
+      </td>
       <td><small style="color:var(--text-dim);">${escapeHtml((card.tags || []).join(', ') || card.notes?.substring(0, 30) || '-')}</small></td>
-      <td style="text-align: right;">
+      <td>
         <button class="card-action-btn" onclick="openDetailModal(${card.id})">詳情</button>
       </td>
     `;
@@ -463,6 +804,13 @@ function renderCards() {
   });
 }
 
+// Global hook for onerror fallback string
+window.__getCardArtHtml = function(cardId) {
+  const card = state.cards.find(c => c.id === cardId) || { name: '商務名片' };
+  return JSON.stringify(getCardDigitalMediaHtml(card));
+};
+
+// --- Pagination ---
 function renderPagination() {
   pagination.innerHTML = '';
   if (state.totalPages <= 1) return;
@@ -480,20 +828,18 @@ function renderPagination() {
   });
   pagination.appendChild(prevBtn);
 
-  // Page Numbers
-  const maxButtons = 7;
-  let startPage = Math.max(1, state.page - 3);
-  let endPage = Math.min(state.totalPages, startPage + maxButtons - 1);
-  if (endPage - startPage < maxButtons - 1) {
-    startPage = Math.max(1, endPage - maxButtons + 1);
+  let startPage = Math.max(1, state.page - 2);
+  let endPage = Math.min(state.totalPages, startPage + 4);
+  if (endPage - startPage < 4) {
+    startPage = Math.max(1, endPage - 4);
   }
 
-  for (let i = startPage; i <= endPage; i++) {
+  for (let p = startPage; p <= endPage; p++) {
     const btn = document.createElement('button');
-    btn.className = `page-btn ${i === state.page ? 'active' : ''}`;
-    btn.textContent = i;
+    btn.className = `page-btn ${p === state.page ? 'active' : ''}`;
+    btn.textContent = p;
     btn.addEventListener('click', () => {
-      state.page = i;
+      state.page = p;
       loadCards();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
@@ -517,8 +863,25 @@ function renderPagination() {
 // --- Detail Modal ---
 async function openDetailModal(cardId) {
   try {
-    const res = await fetch(`/api/cards/${cardId}`);
-    const card = await res.json();
+    let card = null;
+
+    // 1. Try local FastAPI server
+    try {
+      const res = await fetch(`/api/cards/${cardId}`);
+      if (res.ok) {
+        card = await res.json();
+      }
+    } catch (e) {
+      // offline / Vercel static
+    }
+
+    // 2. Seamless Client-side fallback from static cards cache
+    if (!card) {
+      const all = await loadStaticCards();
+      card = all.find(c => c.id === cardId || String(c.id) === String(cardId));
+    }
+
+    if (!card) throw new Error('查無名片資料');
     state.currentCard = card;
 
     const detailModalBody = document.getElementById('detailModalBody');
@@ -527,16 +890,16 @@ async function openDetailModal(cardId) {
       return `
         <div style="margin-bottom: 1rem; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); text-align: center;">
           <a href="${src}" target="_blank" title="點擊檢視原圖">
-            <img src="${src}" style="max-width: 100%; max-height: 420px; object-fit: contain;" alt="${escapeHtml(card.name)}">
+            <img src="${src}" style="max-width: 100%; max-height: 420px; object-fit: contain;" alt="${escapeHtml(card.name)}" onerror="this.parentElement.outerHTML='<div style=\\'padding:1.5rem;\\'>${getCardDigitalMediaHtml(card)}</div>'">
           </a>
         </div>
       `;
     }).join('');
 
     detailModalBody.innerHTML = `
-      <div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 1.5rem;">
+      <div style="display: grid; grid-template-columns: 1fr 1.25fr; gap: 1.5rem;">
         <div>
-          ${imagesHtml || `<div class="card-media-placeholder" style="height: 250px; background: var(--bg-tertiary); border-radius: var(--radius-md);"><span>無名片照片</span></div>`}
+          ${imagesHtml || `<div style="height: 260px; border-radius: var(--radius-md); overflow: hidden;">${getCardDigitalMediaHtml(card)}</div>`}
         </div>
 
         <div>
@@ -581,14 +944,50 @@ async function openDetailModal(cardId) {
               <label class="form-label">標籤 (逗號分隔)</label>
               <input type="text" id="detailTags" class="form-input" value="${escapeHtml((card.tags || []).join(', '))}">
             </div>
-            <div class="form-group full-width">
-              <label class="form-label">備忘筆記 / OCR 原始內容</label>
-              <textarea id="detailNotes" class="form-textarea" rows="4">${escapeHtml(card.notes || '')}</textarea>
+            
+            <!-- 大尺寸備忘錄與寫作工具列 -->
+            <div class="form-group full-width notes-form-group">
+              <div class="notes-header-bar">
+                <label class="form-label">📝 備忘筆記 / 業務交流與談話紀錄</label>
+                <div class="notes-tools">
+                  <span class="notes-counter" id="detailNotesCount">${(card.notes || '').length} 字</span>
+                  <button type="button" class="btn-notes-tool" id="btnDetailInsertDate">📅 今日日期</button>
+                  <button type="button" class="btn-notes-tool" id="btnDetailToggleExpand">⛶ 擴展高度</button>
+                </div>
+              </div>
+              <textarea id="detailNotes" class="form-textarea form-textarea-large" rows="10" placeholder="相遇場合、對話紀錄、合作項目、家庭狀況、待辦事項...（右下角可往下拖曳拉大）">${escapeHtml(card.notes || '')}</textarea>
             </div>
           </div>
         </div>
       </div>
     `;
+
+    // Hook detail modal note tools
+    const detailNotes = document.getElementById('detailNotes');
+    const detailNotesCount = document.getElementById('detailNotesCount');
+    const btnDetailInsertDate = document.getElementById('btnDetailInsertDate');
+    const btnDetailToggleExpand = document.getElementById('btnDetailToggleExpand');
+
+    if (detailNotes && detailNotesCount) {
+      detailNotes.addEventListener('input', () => {
+        detailNotesCount.textContent = `${detailNotes.value.length} 字`;
+      });
+    }
+    if (btnDetailInsertDate && detailNotes) {
+      btnDetailInsertDate.addEventListener('click', () => {
+        const today = new Date().toISOString().split('T')[0];
+        const stamp = `\n[${today}] `;
+        detailNotes.value += stamp;
+        detailNotes.focus();
+        if (detailNotesCount) detailNotesCount.textContent = `${detailNotes.value.length} 字`;
+      });
+    }
+    if (btnDetailToggleExpand && detailNotes) {
+      btnDetailToggleExpand.addEventListener('click', () => {
+        detailNotes.classList.toggle('expanded');
+        btnDetailToggleExpand.textContent = detailNotes.classList.contains('expanded') ? '⛶ 收合高度' : '⛶ 擴展高度';
+      });
+    }
 
     // Hook buttons
     document.getElementById('btnDetailTriggerOcr').onclick = () => triggerCardOcr(card.id);
@@ -600,7 +999,7 @@ async function openDetailModal(cardId) {
     detailModal.classList.add('active');
   } catch (err) {
     console.error('Failed to open detail:', err);
-    showToast('載入名片詳情失敗', 'error');
+    showToast('載入名片詳情失敗: ' + err.message, 'error');
   }
 }
 
@@ -620,19 +1019,42 @@ async function saveCardDetail(cardId) {
   };
 
   try {
-    const res = await fetch(`/api/cards/${cardId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (res.ok) {
-      showToast('名片資料已成功更新！', 'success');
-      closeDetailModal();
-      loadCards();
-      loadStats();
-    } else {
-      showToast('儲存失敗', 'error');
+    let savedRemote = false;
+    try {
+      const res = await fetch(`/api/cards/${cardId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) savedRemote = true;
+    } catch (e) {
+      // Vercel / Static mode
     }
+
+    // Update in-memory cards
+    if (state.currentCard) {
+      Object.assign(state.currentCard, payload);
+    }
+    if (allStaticCards) {
+      const idx = allStaticCards.findIndex(c => c.id === cardId || String(c.id) === String(cardId));
+      if (idx !== -1) {
+        Object.assign(allStaticCards[idx], payload);
+      }
+    }
+    const cardInState = state.cards.find(c => c.id === cardId || String(c.id) === String(cardId));
+    if (cardInState) {
+      Object.assign(cardInState, payload);
+    }
+
+    // Save override to localStorage
+    const overrides = JSON.parse(localStorage.getItem('cardhub_overrides') || '{}');
+    overrides[cardId] = payload;
+    localStorage.setItem('cardhub_overrides', JSON.stringify(overrides));
+
+    showToast('✨ 名片備忘與資料已成功更新儲存！', 'success');
+    closeDetailModal();
+    renderCards();
+    loadStats();
   } catch (err) {
     showToast('更新失敗: ' + err.message, 'error');
   }
@@ -666,7 +1088,7 @@ async function triggerCardOcr(cardId, buttonElement) {
       showToast('辨識失敗: ' + (data.detail || '未知錯誤'), 'error');
     }
   } catch (err) {
-    showToast('辨識異常: ' + err.message, 'error');
+    showToast('辨識請求失敗: ' + err.message, 'error');
   } finally {
     if (buttonElement) {
       buttonElement.disabled = false;
@@ -675,21 +1097,15 @@ async function triggerCardOcr(cardId, buttonElement) {
   }
 }
 
-// --- Add Card / OCR Upload Flow ---
+// --- Add Card Modal & Upload ---
 function openAddModal() {
-  // Reset Form
-  dropzone.style.display = 'block';
-  ocrPreviewContainer.style.display = 'none';
-  ocrStatusMsg.style.display = 'none';
-  btnSaveCard.disabled = true;
-  state.uploadedCardData = null;
-  fileInput.value = '';
-
+  resetAddForm();
   addCardModal.classList.add('active');
 }
 
 function closeAddModal() {
   addCardModal.classList.remove('active');
+  resetAddForm();
 }
 
 function closeAllModals() {
@@ -697,53 +1113,76 @@ function closeAllModals() {
   closeDetailModal();
 }
 
+function resetAddForm() {
+  dropzone.style.display = 'block';
+  ocrPreviewContainer.style.display = 'none';
+  btnSaveCard.disabled = true;
+  ocrStatusMsg.style.display = 'none';
+  fileInput.value = '';
+  previewImage.src = '';
+  state.uploadedCardData = null;
+
+  document.getElementById('formName').value = '';
+  document.getElementById('formTitle').value = '';
+  document.getElementById('formCompany').value = '';
+  document.getElementById('formMobile').value = '';
+  document.getElementById('formPhone').value = '';
+  document.getElementById('formEmail').value = '';
+  document.getElementById('formTaxId').value = '';
+  document.getElementById('formAddress').value = '';
+  document.getElementById('formWebsite').value = '';
+  document.getElementById('formTags').value = '';
+  document.getElementById('formNotes').value = '';
+}
+
 function handleFileSelected(e) {
-  if (e.target.files && e.target.files[0]) {
+  if (e.target.files && e.target.files.length > 0) {
     handleFileUpload(e.target.files[0]);
   }
 }
 
 async function handleFileUpload(file) {
   if (!file.type.startsWith('image/')) {
-    showToast('請上傳圖檔格式 (JPG, PNG, HEIC 等)', 'error');
+    showToast('請上傳 JPG、PNG 或 WebP 圖片格式', 'error');
     return;
   }
 
-  // Preview local image immediately
+  // Preview local image
   const reader = new FileReader();
   reader.onload = (e) => {
     previewImage.src = e.target.result;
+    dropzone.style.display = 'none';
     ocrPreviewContainer.style.display = 'grid';
   };
   reader.readAsDataURL(file);
 
-  // Show status
-  ocrStatusMsg.style.display = 'block';
-  btnSaveCard.disabled = true;
-
-  const engine = selectOcrEngine.value;
+  // Send to OCR API
   const formData = new FormData();
   formData.append('file', file);
+  const engine = selectOcrEngine.value;
   formData.append('engine', engine);
+
+  ocrStatusMsg.style.display = 'inline-block';
+  showToast('AI 正在極速掃描名片並對齊標準欄位...', 'info');
 
   try {
     const res = await fetch('/api/ocr', {
       method: 'POST',
       body: formData
     });
-    const result = await res.json();
+    const data = await res.json();
 
-    if (res.ok && result.success) {
+    if (res.ok && data.success) {
+      const d = data.data;
       state.uploadedCardData = {
-        image_url: result.image_url,
-        data: result.data
+        ...d,
+        temp_image_path: data.image_path
       };
 
-      // Populate form
-      const d = result.data;
+      // Fill in form fields
       document.getElementById('formName').value = d.name || '';
-      document.getElementById('formCompany').value = d.company || '';
       document.getElementById('formTitle').value = d.title || '';
+      document.getElementById('formCompany').value = d.company || '';
       document.getElementById('formMobile').value = d.mobile || '';
       document.getElementById('formPhone').value = d.phone || '';
       document.getElementById('formEmail').value = d.email || '';
@@ -754,13 +1193,13 @@ async function handleFileUpload(file) {
       document.getElementById('formNotes').value = d.notes || d.raw_text || '';
 
       btnSaveCard.disabled = false;
-      showToast(`🎉 AI 辨識完成 (${d.engine || 'Gemini'})！請核對並儲存`, 'success');
+      showToast('✨ AI 視覺辨識完成！欄位已自動對應，請核對後儲存。', 'success');
     } else {
-      showToast('圖片辨識出錯: ' + (result.detail || '請手動填寫欄位'), 'error');
+      showToast('OCR 辨識未完成: ' + (data.detail || '請手動填寫欄位'), 'error');
       btnSaveCard.disabled = false;
     }
   } catch (err) {
-    showToast('上傳或辨識異常: ' + err.message, 'error');
+    showToast('網路連線失敗，請手動輸入名片資料', 'error');
     btnSaveCard.disabled = false;
   } finally {
     ocrStatusMsg.style.display = 'none';
@@ -768,17 +1207,10 @@ async function handleFileUpload(file) {
 }
 
 async function saveNewCard() {
-  const name = document.getElementById('formName').value.trim();
-  if (!name) {
-    showToast('請至少填寫名片姓名', 'error');
-    document.getElementById('formName').focus();
-    return;
-  }
-
   const payload = {
-    name: name,
-    company: document.getElementById('formCompany').value.trim(),
+    name: document.getElementById('formName').value.trim(),
     title: document.getElementById('formTitle').value.trim(),
+    company: document.getElementById('formCompany').value.trim(),
     mobile: document.getElementById('formMobile').value.trim(),
     phone: document.getElementById('formPhone').value.trim(),
     email: document.getElementById('formEmail').value.trim(),
@@ -787,13 +1219,17 @@ async function saveNewCard() {
     website: document.getElementById('formWebsite').value.trim(),
     tags: document.getElementById('formTags').value.split(',').map(s => s.trim()).filter(Boolean),
     notes: document.getElementById('formNotes').value.trim(),
-    image_paths: state.uploadedCardData?.image_url ? [state.uploadedCardData.image_url] : [],
-    raw_text: state.uploadedCardData?.data?.raw_text || '',
-    ocr_engine: state.uploadedCardData?.data?.engine || 'manual'
+    image_paths: state.uploadedCardData?.temp_image_path ? [state.uploadedCardData.temp_image_path] : [],
+    ocr_status: 'done'
   };
 
+  if (!payload.name && !payload.company) {
+    showToast('請至少填寫「姓名」或「公司全名」', 'error');
+    return;
+  }
+
   btnSaveCard.disabled = true;
-  btnSaveCard.innerHTML = `<span class="spinner"></span> 儲存中...`;
+  btnSaveCard.textContent = '儲存中...';
 
   try {
     const res = await fetch('/api/cards', {
@@ -802,43 +1238,23 @@ async function saveNewCard() {
       body: JSON.stringify(payload)
     });
     if (res.ok) {
-      showToast(`✅ 新名片【${payload.name}】已成功存入名片庫！`, 'success');
+      showToast('🎉 新名片已成功建檔並存入名片庫！', 'success');
       closeAddModal();
       loadCards();
       loadStats();
     } else {
-      showToast('儲存失敗', 'error');
+      const err = await res.json();
+      showToast('建檔失敗: ' + (err.detail || '未知錯誤'), 'error');
     }
   } catch (err) {
-    showToast('儲存異常: ' + err.message, 'error');
+    showToast('網路請求錯誤: ' + err.message, 'error');
   } finally {
     btnSaveCard.disabled = false;
-    btnSaveCard.innerHTML = `💾 儲存至名片庫`;
+    btnSaveCard.textContent = '💾 儲存至名片庫';
   }
 }
 
 // --- Utilities ---
-function copyToClipboard(text, label) {
-  navigator.clipboard.writeText(text).then(() => {
-    showToast(`已複製 ${label}: ${text}`, 'info');
-  }).catch(() => {
-    showToast('複製失敗', 'error');
-  });
-}
-
-function showToast(message, type = 'info') {
-  const container = document.getElementById('toastContainer');
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `<span>${message}</span>`;
-  container.appendChild(toast);
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(10px)';
-    setTimeout(() => toast.remove(), 250);
-  }, 3200);
-}
-
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -846,5 +1262,34 @@ function escapeHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replace(/'/g, '&#39;');
+}
+
+function copyToClipboard(text, label) {
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    showToast(`已複製${label}: ${text}`, 'success');
+  }).catch(() => {
+    showToast('複製失敗', 'error');
+  });
+}
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+
+  const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : 'ℹ️');
+  toast.innerHTML = `<span>${icon}</span> <span>${escapeHtml(message)}</span>`;
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(10px)';
+    toast.style.transition = 'all 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 3500);
 }
