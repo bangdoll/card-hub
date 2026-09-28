@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, APIRouter, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import json
@@ -13,6 +13,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+router = APIRouter()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CARDS_PATHS = [
@@ -40,7 +42,7 @@ def get_cards():
     return _cards_cache
 
 
-@app.get("/api/stats")
+@router.get("/stats")
 def stats():
     cards = get_cards()
     total = len(cards)
@@ -67,7 +69,7 @@ def stats():
     }
 
 
-@app.get("/api/cards")
+@router.get("/cards")
 def list_cards(
     q: str = None,
     tag: str = None,
@@ -127,10 +129,15 @@ def list_cards(
     }
 
 
-@app.get("/api/cards/{card_id}")
+@router.get("/cards/{card_id}")
 def get_card(card_id: int):
     cards = get_cards()
     for c in cards:
         if c.get("id") == card_id:
             return c
     return JSONResponse(status_code=404, content={"detail": "Card not found"})
+
+
+# Support both with and without /api prefix
+app.include_router(router, prefix="/api")
+app.include_router(router)
